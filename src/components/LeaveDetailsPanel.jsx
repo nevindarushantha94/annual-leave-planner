@@ -40,7 +40,7 @@ export function LeaveDetailsPanel({ period, employeeRole, onClose }) {
 
           <div>
             <p className="text-xs uppercase tracking-wide text-ink-faint">Period</p>
-            <p className="mt-1 text-sm text-ink">Period {period.periodNumber}</p>
+            <p className="mt-1 text-sm text-ink">Annual Leave · Period {period.periodNumber}</p>
           </div>
 
           <div>

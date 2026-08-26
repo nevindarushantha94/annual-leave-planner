@@ -83,6 +83,7 @@ function normalizeLeaveRow(row) {
     id: row.id,
     employeeId: row.employee_id,
     employeeName: emp?.name ?? 'Unknown',
+    employeeRole: emp?.role ?? null,
     periodNumber: row.period_number,
     startDate: row.start_date,
     endDate: row.end_date,

@@ -6,20 +6,24 @@ import { MyLeave } from './components/MyLeave'
 import { LeaveDrawer } from './components/LeaveDrawer'
 import { LeaveDetailsPanel } from './components/LeaveDetailsPanel'
 import { EmployeeSelectionScreen } from './components/EmployeeSelectionScreen'
+import { SeatingSidebar } from './components/SeatingSidebar'
 import { PreviewModeBanner } from './components/PreviewModeBanner'
 import { CalendarSkeleton } from './components/Skeletons'
-import { EmptyState } from './components/EmptyState'
 import { ContextBadges } from './components/Badges'
+
+const SEAT_GROUPS = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9']
 
 function Shell() {
   const { currentEmployee, employees, changeEmployee } = useCurrentEmployee()
   const { periods, loading: periodsLoading, error: periodsError, refresh } = useLeavePeriods()
 
-  // Land directly on My Leave Planner after selecting an employee, per spec.
-  const [tab, setTab] = useState('myLeave') // 'calendar' | 'myLeave'
-  const [filter, setFilter] = useState('all') // 'all' | 'mine' | 'team'
+  // Calendar is the primary landing screen, per the redesign brief.
+  const [tab, setTab] = useState('calendar') // 'calendar' | 'myLeave'
+  const [scope, setScope] = useState('all') // 'all' | 'mine' | 'team'
+  const [seatGroup, setSeatGroup] = useState('ALL')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedPeriod, setSelectedPeriod] = useState(null)
+  const [highlightedEmployeeId, setHighlightedEmployeeId] = useState(null)
 
   const teamPeerIds = useMemo(() => {
     if (!currentEmployee) return new Set()
@@ -34,10 +38,12 @@ function Shell() {
   }, [currentEmployee, employees])
 
   const visiblePeriods = useMemo(() => {
-    if (filter === 'mine') return periods.filter((p) => p.employeeId === currentEmployee?.id)
-    if (filter === 'team') return periods.filter((p) => teamPeerIds.has(p.employeeId))
-    return periods
-  }, [periods, filter, currentEmployee, teamPeerIds])
+    let result = periods
+    if (scope === 'mine') result = result.filter((p) => p.employeeId === currentEmployee?.id)
+    else if (scope === 'team') result = result.filter((p) => teamPeerIds.has(p.employeeId))
+    if (seatGroup !== 'ALL') result = result.filter((p) => p.seatGroupLabel === seatGroup)
+    return result
+  }, [periods, scope, seatGroup, currentEmployee, teamPeerIds])
 
   const myExistingPeriods = periods.filter((p) => p.employeeId === currentEmployee?.id)
 
@@ -46,12 +52,20 @@ function Shell() {
     return employees.find((e) => e.id === selectedPeriod.employeeId)?.role ?? null
   }, [selectedPeriod, employees])
 
+  function handleSelectFromSidebar(employee) {
+    setHighlightedEmployeeId((current) => (current === employee.id ? null : employee.id))
+    const theirCurrentOrNextPeriod = periods
+      .filter((p) => p.employeeId === employee.id)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0]
+    if (theirCurrentOrNextPeriod) setSelectedPeriod(theirCurrentOrNextPeriod)
+  }
+
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="flex min-h-screen flex-col bg-bg">
       <PreviewModeBanner />
 
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div>
             <h1 className="font-display text-lg font-bold text-ink sm:text-xl">
               Annual Leave Planner
@@ -83,50 +97,68 @@ function Shell() {
           </div>
         </div>
 
-        <nav className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6">
-          <TabButton active={tab === 'myLeave'} onClick={() => setTab('myLeave')}>
-            My Leave
-          </TabButton>
+        <nav className="flex gap-1 px-4 sm:px-6">
           <TabButton active={tab === 'calendar'} onClick={() => setTab('calendar')}>
             Calendar
+          </TabButton>
+          <TabButton active={tab === 'myLeave'} onClick={() => setTab('myLeave')}>
+            My Leave
           </TabButton>
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        {periodsError && (
-          <div className="mb-4 rounded-lg border border-conflict/30 bg-conflict-tint p-4 text-sm text-conflict">
-            Something went wrong loading leave data: {periodsError.message}. Try refreshing the
-            page.
-          </div>
+      <div className="flex flex-1 overflow-hidden">
+        {tab === 'calendar' && (
+          <SeatingSidebar
+            employees={employees}
+            periods={periods}
+            highlightedEmployeeId={highlightedEmployeeId}
+            onSelectEmployee={handleSelectFromSidebar}
+          />
         )}
 
-        {tab === 'calendar' && (
-          <>
-            <FilterBar filter={filter} setFilter={setFilter} />
-            {periodsLoading ? (
-              <CalendarSkeleton />
-            ) : (
-              <CalendarView
-                periods={visiblePeriods}
-                activeEmployeeId={currentEmployee?.id}
-                filter={filter === 'mine' ? 'mine' : 'all'}
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-5xl">
+            {periodsError && (
+              <div className="mb-4 rounded-lg border border-conflict/30 bg-conflict-tint p-4 text-sm text-conflict">
+                Something went wrong loading leave data: {periodsError.message}. Try refreshing
+                the page.
+              </div>
+            )}
+
+            {tab === 'calendar' && (
+              <>
+                <FilterBar
+                  scope={scope}
+                  setScope={setScope}
+                  seatGroup={seatGroup}
+                  setSeatGroup={setSeatGroup}
+                />
+                {periodsLoading ? (
+                  <CalendarSkeleton />
+                ) : (
+                  <CalendarView
+                    periods={visiblePeriods}
+                    activeEmployeeId={currentEmployee?.id}
+                    highlightedEmployeeId={highlightedEmployeeId}
+                    onSelectPeriod={setSelectedPeriod}
+                    onApplyLeave={() => setDrawerOpen(true)}
+                  />
+                )}
+              </>
+            )}
+
+            {tab === 'myLeave' && (
+              <MyLeave
+                employee={currentEmployee}
+                periods={periods}
                 onSelectPeriod={setSelectedPeriod}
                 onApplyLeave={() => setDrawerOpen(true)}
               />
             )}
-          </>
-        )}
-
-        {tab === 'myLeave' && (
-          <MyLeave
-            employee={currentEmployee}
-            periods={periods}
-            onSelectPeriod={setSelectedPeriod}
-            onApplyLeave={() => setDrawerOpen(true)}
-          />
-        )}
-      </main>
+          </div>
+        </main>
+      </div>
 
       <LeaveDrawer
         open={drawerOpen}
@@ -160,20 +192,20 @@ function TabButton({ active, onClick, children }) {
   )
 }
 
-function FilterBar({ filter, setFilter }) {
+function FilterBar({ scope, setScope, seatGroup, setSeatGroup }) {
   const options = [
-    { key: 'mine', label: 'My Leave' },
-    { key: 'team', label: 'My Team' },
     { key: 'all', label: 'All Employees' },
+    { key: 'team', label: 'My Team' },
+    { key: 'mine', label: 'My Leave' },
   ]
   return (
-    <div className="mb-4 flex gap-2">
+    <div className="mb-4 flex flex-wrap items-center gap-2">
       {options.map((o) => (
         <button
           key={o.key}
-          onClick={() => setFilter(o.key)}
+          onClick={() => setScope(o.key)}
           className={`rounded-sm border px-3 py-1.5 text-sm font-medium transition ${
-            filter === o.key
+            scope === o.key
               ? 'border-primary bg-primary-tint text-primary'
               : 'border-border bg-surface text-ink-muted hover:bg-bg'
           }`}
@@ -181,6 +213,19 @@ function FilterBar({ filter, setFilter }) {
           {o.label}
         </button>
       ))}
+
+      <select
+        value={seatGroup}
+        onChange={(e) => setSeatGroup(e.target.value)}
+        className="rounded-sm border border-border bg-surface px-2.5 py-1.5 text-sm text-ink-muted outline-none transition focus:border-primary focus:text-ink"
+      >
+        <option value="ALL">Seat Group: All</option>
+        {SEAT_GROUPS.map((g) => (
+          <option key={g} value={g}>
+            Seat Group: {g}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
