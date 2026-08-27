@@ -4,6 +4,14 @@ import { ContextBadges } from './Badges'
 export function LeaveDetailsPanel({ period, employeeRole, onClose }) {
   if (!period) return null
 
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const leaveStatus =
+    period.startDate <= todayISO && period.endDate >= todayISO
+      ? 'ongoing'
+      : period.startDate > todayISO
+        ? 'upcoming'
+        : 'past'
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <button
@@ -29,6 +37,9 @@ export function LeaveDetailsPanel({ period, employeeRole, onClose }) {
             <div className="mt-1 flex items-center gap-2">
               <p className="text-sm font-medium text-ink">{period.employeeName}</p>
             </div>
+            {period.employeeEpf && (
+              <p className="mt-0.5 font-mono text-xs text-ink-muted">{period.employeeEpf}</p>
+            )}
             <div className="mt-1.5">
               <ContextBadges
                 role={employeeRole}
@@ -39,12 +50,28 @@ export function LeaveDetailsPanel({ period, employeeRole, onClose }) {
           </div>
 
           <div>
+            <p className="text-xs uppercase tracking-wide text-ink-faint">Status</p>
+            <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-ink">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  leaveStatus === 'ongoing'
+                    ? 'bg-conflict'
+                    : leaveStatus === 'upcoming'
+                      ? 'bg-accent'
+                      : 'bg-ink-faint'
+                }`}
+              />
+              {leaveStatus === 'ongoing' ? 'On leave now' : leaveStatus === 'upcoming' ? 'Upcoming leave' : 'Past leave'}
+            </p>
+          </div>
+
+          <div>
             <p className="text-xs uppercase tracking-wide text-ink-faint">Period</p>
             <p className="mt-1 text-sm text-ink">Annual Leave · Period {period.periodNumber}</p>
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-ink-faint">Dates</p>
+            <p className="text-xs uppercase tracking-wide text-ink-faint">Leave Period</p>
             <p className="mt-1 font-mono text-sm text-ink">
               {formatLong(period.startDate)} → {formatLong(period.endDate)}
             </p>

@@ -6,24 +6,32 @@ import { MyLeave } from './components/MyLeave'
 import { LeaveDrawer } from './components/LeaveDrawer'
 import { LeaveDetailsPanel } from './components/LeaveDetailsPanel'
 import { EmployeeSelectionScreen } from './components/EmployeeSelectionScreen'
-import { SeatingSidebar } from './components/SeatingSidebar'
+import { SeatingFloorChart } from './components/SeatingFloorChart'
+import { ManagementView } from './components/ManagementView'
 import { PreviewModeBanner } from './components/PreviewModeBanner'
 import { CalendarSkeleton } from './components/Skeletons'
 import { ContextBadges } from './components/Badges'
 
 const SEAT_GROUPS = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9']
 
+// UI-only visibility. The database's `employees.role` column (ADMIN / HOD /
+// EMPLOYEE) is the single source of truth here — nothing in this file ever
+// checks a name or an id to decide what's shown.
+const MANAGEMENT_ROLES = new Set(['ADMIN', 'HOD'])
+
 function Shell() {
   const { currentEmployee, employees, changeEmployee } = useCurrentEmployee()
   const { periods, loading: periodsLoading, error: periodsError, refresh } = useLeavePeriods()
 
   // Calendar is the primary landing screen, per the redesign brief.
-  const [tab, setTab] = useState('calendar') // 'calendar' | 'myLeave'
+  const [tab, setTab] = useState('calendar') // 'calendar' | 'seating' | 'myLeave' | 'management'
   const [scope, setScope] = useState('all') // 'all' | 'mine' | 'team'
   const [seatGroup, setSeatGroup] = useState('ALL')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedPeriod, setSelectedPeriod] = useState(null)
   const [highlightedEmployeeId, setHighlightedEmployeeId] = useState(null)
+
+  const canManage = MANAGEMENT_ROLES.has(currentEmployee?.role)
 
   const teamPeerIds = useMemo(() => {
     if (!currentEmployee) return new Set()
@@ -51,14 +59,6 @@ function Shell() {
     if (!selectedPeriod) return null
     return employees.find((e) => e.id === selectedPeriod.employeeId)?.role ?? null
   }, [selectedPeriod, employees])
-
-  function handleSelectFromSidebar(employee) {
-    setHighlightedEmployeeId((current) => (current === employee.id ? null : employee.id))
-    const theirCurrentOrNextPeriod = periods
-      .filter((p) => p.employeeId === employee.id)
-      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0]
-    if (theirCurrentOrNextPeriod) setSelectedPeriod(theirCurrentOrNextPeriod)
-  }
 
   return (
     <div className="flex min-h-screen flex-col bg-bg">
@@ -97,68 +97,91 @@ function Shell() {
           </div>
         </div>
 
-        <nav className="flex gap-1 px-4 sm:px-6">
+        <nav className="flex flex-wrap gap-1 px-4 sm:px-6">
           <TabButton active={tab === 'calendar'} onClick={() => setTab('calendar')}>
             Calendar
           </TabButton>
           <TabButton active={tab === 'myLeave'} onClick={() => setTab('myLeave')}>
             My Leave
           </TabButton>
+          <TabButton active={tab === 'seating'} onClick={() => setTab('seating')}>
+            Seating
+          </TabButton>
+          {canManage && (
+            <TabButton
+              active={tab === 'management'}
+              onClick={() => setTab('management')}
+              accent
+            >
+              Management
+            </TabButton>
+          )}
         </nav>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {tab === 'calendar' && (
-          <SeatingSidebar
-            employees={employees}
-            periods={periods}
-            highlightedEmployeeId={highlightedEmployeeId}
-            onSelectEmployee={handleSelectFromSidebar}
-          />
-        )}
+      <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          {periodsError && (
+            <div className="mb-4 rounded-lg border border-conflict/30 bg-conflict-tint p-4 text-sm text-conflict">
+              Something went wrong loading leave data: {periodsError.message}. Try refreshing
+              the page.
+            </div>
+          )}
 
-        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-          <div className="mx-auto max-w-5xl">
-            {periodsError && (
-              <div className="mb-4 rounded-lg border border-conflict/30 bg-conflict-tint p-4 text-sm text-conflict">
-                Something went wrong loading leave data: {periodsError.message}. Try refreshing
-                the page.
-              </div>
-            )}
-
-            {tab === 'calendar' && (
-              <>
-                <FilterBar
-                  scope={scope}
-                  setScope={setScope}
-                  seatGroup={seatGroup}
-                  setSeatGroup={setSeatGroup}
-                />
-                {periodsLoading ? (
-                  <CalendarSkeleton />
-                ) : (
-                  <CalendarView
-                    periods={visiblePeriods}
-                    activeEmployeeId={currentEmployee?.id}
-                    highlightedEmployeeId={highlightedEmployeeId}
-                    onSelectPeriod={setSelectedPeriod}
-                    onApplyLeave={() => setDrawerOpen(true)}
-                  />
-                )}
-              </>
-            )}
-
-            {tab === 'myLeave' && (
-              <MyLeave
-                employee={currentEmployee}
-                periods={periods}
-                onSelectPeriod={setSelectedPeriod}
-                onApplyLeave={() => setDrawerOpen(true)}
+          {tab === 'calendar' && (
+            <>
+              <FilterBar
+                scope={scope}
+                setScope={setScope}
+                seatGroup={seatGroup}
+                setSeatGroup={setSeatGroup}
               />
-            )}
-          </div>
-        </main>
-      </div>
+              {periodsLoading ? (
+                <CalendarSkeleton />
+              ) : (
+                <CalendarView
+                  periods={visiblePeriods}
+                  activeEmployeeId={currentEmployee?.id}
+                  highlightedEmployeeId={highlightedEmployeeId}
+                  onSelectPeriod={setSelectedPeriod}
+                  onApplyLeave={() => setDrawerOpen(true)}
+                />
+              )}
+            </>
+          )}
+
+          {tab === 'myLeave' && (
+            <MyLeave
+              employee={currentEmployee}
+              periods={periods}
+              onSelectPeriod={setSelectedPeriod}
+              onApplyLeave={() => setDrawerOpen(true)}
+            />
+          )}
+
+          {tab === 'seating' && (
+            <SeatingFloorChart
+              employees={employees}
+              periods={periods}
+              activeEmployeeId={currentEmployee?.id}
+              highlightedEmployeeId={highlightedEmployeeId}
+              onHighlightEmployee={setHighlightedEmployeeId}
+            />
+          )}
+
+          {tab === 'management' && canManage && (
+            <ManagementView
+              role={currentEmployee?.role}
+              employees={employees}
+              periods={periods}
+              activeEmployeeId={currentEmployee?.id}
+              highlightedEmployeeId={highlightedEmployeeId}
+              onHighlightEmployee={setHighlightedEmployeeId}
+              onSelectPeriod={setSelectedPeriod}
+            />
+          )}
+        </div>
+      </main>
 
       <LeaveDrawer
         open={drawerOpen}
@@ -177,13 +200,15 @@ function Shell() {
   )
 }
 
-function TabButton({ active, onClick, children }) {
+function TabButton({ active, onClick, children, accent = false }) {
   return (
     <button
       onClick={onClick}
       className={`border-b-2 px-3 py-2.5 text-sm font-medium transition ${
         active
-          ? 'border-primary text-primary'
+          ? accent
+            ? 'border-hod text-hod'
+            : 'border-primary text-primary'
           : 'border-transparent text-ink-muted hover:text-ink'
       }`}
     >

@@ -48,6 +48,8 @@ export async function fetchEmployeeDirectory() {
       role: e.role,
       seatGroupLabel: seat?.seating_groups?.group_label ?? null,
       slotLabel: seat?.slot_label ?? null,
+      gridRow: seat?.grid_row ?? null,
+      gridCol: seat?.grid_col ?? null,
       teamName: teamRow?.teams?.team_name ?? null,
     }
   })
@@ -63,7 +65,7 @@ export async function fetchLeavePeriods() {
     .select(
       `
       id, employee_id, period_number, start_date, end_date, days_count, created_at,
-      employees ( id, name, role,
+      employees ( id, name, role, epf_number,
         seat_positions ( seating_groups ( group_label ) ),
         team_members ( teams ( team_name ) ) )
     `
@@ -84,6 +86,7 @@ function normalizeLeaveRow(row) {
     employeeId: row.employee_id,
     employeeName: emp?.name ?? 'Unknown',
     employeeRole: emp?.role ?? null,
+    employeeEpf: emp?.epf_number ?? null,
     periodNumber: row.period_number,
     startDate: row.start_date,
     endDate: row.end_date,

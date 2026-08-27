@@ -47,9 +47,11 @@ export function CalendarView({
   highlightedEmployeeId,
   onSelectPeriod,
   onApplyLeave,
+  hideApplyButton = false,
 }) {
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
+  const [selectedDate, setSelectedDate] = useState(null)
 
   const weeks = useMemo(() => buildMonthWeeks(cursor.getFullYear(), cursor.getMonth()), [cursor])
   const gridStartISO = toISODate(weeks[0][0])
@@ -93,12 +95,14 @@ export function CalendarView({
           </button>
         </div>
 
-        <button
-          onClick={onApplyLeave}
-          className="rounded-sm bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-dark"
-        >
-          + Apply Leave
-        </button>
+        {!hideApplyButton && (
+          <button
+            onClick={onApplyLeave}
+            className="rounded-sm bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-dark"
+          >
+            + Apply Leave
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-t-lg border border-b-0 border-border bg-border text-center">
@@ -127,6 +131,8 @@ export function CalendarView({
             highlightedEmployeeId={highlightedEmployeeId}
             onSelectPeriod={onSelectPeriod}
             isLastRow={wi === weeks.length - 1}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
           />
         ))}
       </div>
@@ -136,6 +142,7 @@ export function CalendarView({
         <LegendDot className="bg-accent" label="Other employees" />
         <LegendDot className="bg-hod" label="HOD" />
         <LegendDot className="bg-primary" round label="Today" />
+        <LegendDot className="border-2 border-ink bg-transparent" round label="Selected" />
         <span className="opacity-60">Dimmed dates = outside the 3-month planning window</span>
       </div>
     </div>
@@ -152,6 +159,8 @@ function WeekRow({
   highlightedEmployeeId,
   onSelectPeriod,
   isLastRow,
+  selectedDate,
+  onSelectDate,
 }) {
   const weekStartISO = toISODate(week[0])
   const weekEndISO = toISODate(week[6])
@@ -195,27 +204,29 @@ function WeekRow({
         {week.map((day, i) => {
           const isCurrentMonth = day.getMonth() === cursor.getMonth()
           const isToday = toISODate(day) === toISODate(today)
+          const isSelected = selectedDate === toISODate(day)
           const inWindow = isWithinWindow(day)
           const isWeekend = i >= 5
 
           return (
             <div
               key={i}
-              className={`px-1.5 pt-1.5 ${!isCurrentMonth ? 'bg-bg/60' : isWeekend ? 'bg-bg/40' : 'bg-surface'} ${
+              className={`min-h-[2.25rem] px-1.5 pt-1.5 sm:min-h-[2.5rem] ${!isCurrentMonth ? 'bg-bg/60' : isWeekend ? 'bg-bg/40' : 'bg-surface'} ${
                 !inWindow ? 'opacity-50' : ''
               }`}
             >
-              <span
-                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+              <button
+                onClick={() => onSelectDate(isSelected ? null : toISODate(day))}
+                className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm transition ${
                   isToday
-                    ? 'bg-primary font-medium text-white'
+                    ? 'bg-primary font-semibold text-white'
                     : isCurrentMonth
-                      ? 'text-ink-muted'
-                      : 'text-ink-faint'
-                }`}
+                      ? 'text-ink-muted hover:bg-bg'
+                      : 'text-ink-faint hover:bg-bg'
+                } ${isSelected && !isToday ? 'ring-2 ring-ink' : ''} ${isSelected && isToday ? 'ring-2 ring-ink ring-offset-1' : ''}`}
               >
                 {day.getDate()}
-              </span>
+              </button>
             </div>
           )
         })}
@@ -223,7 +234,7 @@ function WeekRow({
 
       <div
         className="grid grid-cols-7 gap-px bg-border pb-1.5"
-        style={{ gridAutoRows: '20px' }}
+        style={{ gridAutoRows: '22px' }}
       >
         {Array.from({ length: usedLanes }).map((_, lane) => (
           <div key={lane} className="col-span-7 grid grid-cols-7 gap-px bg-surface">
