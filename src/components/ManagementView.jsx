@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CalendarView } from './CalendarView'
 import { SeatingFloorChart } from './SeatingFloorChart'
+import { LeaveManagementTable } from './LeaveManagementTable'
 
 const SECTIONS = [
   { key: 'leave', label: 'Leave Management' },
@@ -37,8 +38,18 @@ export function ManagementView({
   highlightedEmployeeId,
   onHighlightEmployee,
   onSelectPeriod,
+  onEditPeriod,
+  onDeletePeriod,
+  onAddForEmployee,
 }) {
   const [section, setSection] = useState('leave')
+  const [calendarFocus, setCalendarFocus] = useState(null) // { date, token }
+
+  function handleViewOnCalendar(period) {
+    setCalendarFocus({ date: period.startDate, token: Date.now() })
+    onHighlightEmployee?.(period.employeeId)
+    setSection('calendar')
+  }
 
   return (
     <div className="rounded-xl border border-hod/25 bg-hod-tint/40">
@@ -48,8 +59,8 @@ export function ManagementView({
             Management {role === 'HOD' ? '· HOD' : '· Admin'}
           </h2>
           <p className="text-xs text-ink-muted">
-            Department-wide leave oversight. Editing, cancellation and exports arrive in a later
-            phase.
+            Department-wide leave oversight. Edits and cancellations here are enforced server-side
+            for {role === 'HOD' ? 'HOD' : 'Admin'} accounts — the database is the final authority.
           </p>
         </div>
       </div>
@@ -72,21 +83,28 @@ export function ManagementView({
 
       <div className="p-4 sm:p-5">
         {section === 'leave' && (
-          <ComingSoon
-            title="Leave Management"
-            description="Reviewing, editing and cancelling employee leave requests will be added in the next phase. For now, use the Calendar and Seating tabs below for a full department view."
+          <LeaveManagementTable
+            employees={employees}
+            periods={periods}
+            onViewPeriod={onSelectPeriod}
+            onViewOnCalendar={handleViewOnCalendar}
+            onEditPeriod={onEditPeriod}
+            onDeletePeriod={onDeletePeriod}
+            onAddForEmployee={onAddForEmployee}
           />
         )}
 
         {section === 'calendar' && (
           <div className="rounded-lg bg-surface p-3 sm:p-4">
             <CalendarView
+              key={calendarFocus?.token ?? 'default'}
               periods={periods}
               activeEmployeeId={activeEmployeeId}
               highlightedEmployeeId={highlightedEmployeeId}
               onSelectPeriod={onSelectPeriod}
               onApplyLeave={() => {}}
               hideApplyButton
+              focusDate={calendarFocus?.date}
             />
           </div>
         )}
@@ -106,7 +124,7 @@ export function ManagementView({
         {section === 'reports' && (
           <ComingSoon
             title="Reports"
-            description="Department leave summaries and Excel export are planned for a future phase."
+            description="The Leave Management tab above already covers filtered search, summary metrics and Excel export. Additional trend/analytics reporting is planned for a future phase."
           />
         )}
       </div>

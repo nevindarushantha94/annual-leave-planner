@@ -6,12 +6,19 @@ const ICONS = {
   max_periods: 'ℹ️',
   window: 'ℹ️',
   not_linked: 'ℹ️',
+  not_authorized: '🔒',
+  not_found: 'ℹ️',
+  not_available: 'ℹ️',
   validation: '⚠️',
   unknown: '⚠️',
 }
 
+const DATE_RELATED_KINDS = new Set(['conflict', 'self_overlap', 'max_periods', 'window', 'validation'])
+
 export function ConflictError({ error, onChangeDates }) {
   if (!error) return null
+
+  const isDateRelated = DATE_RELATED_KINDS.has(error.kind)
 
   return (
     <div className="rounded-lg border border-conflict/30 bg-conflict-tint p-4">
@@ -33,14 +40,17 @@ export function ConflictError({ error, onChangeDates }) {
         <p className="mt-1.5 text-sm text-ink">{error.message}</p>
       )}
 
-      <p className="mt-2 text-sm text-ink-muted">Please select different dates.</p>
-
-      <button
-        onClick={onChangeDates}
-        className="mt-3 rounded-sm border border-conflict/40 bg-white px-3 py-1.5 text-sm font-medium text-conflict transition hover:bg-conflict/5"
-      >
-        Change Dates
-      </button>
+      {isDateRelated && (
+        <>
+          <p className="mt-2 text-sm text-ink-muted">Please select different dates.</p>
+          <button
+            onClick={onChangeDates}
+            className="mt-3 rounded-sm border border-conflict/40 bg-white px-3 py-1.5 text-sm font-medium text-conflict transition hover:bg-conflict/5"
+          >
+            Change Dates
+          </button>
+        </>
+      )}
     </div>
   )
 }

@@ -1,16 +1,10 @@
-import { formatLong } from '../lib/dateWindow'
+import { formatLong, leaveTemporalStatus } from '../lib/dateWindow'
 import { ContextBadges } from './Badges'
 
 export function LeaveDetailsPanel({ period, employeeRole, onClose }) {
   if (!period) return null
 
-  const todayISO = new Date().toISOString().slice(0, 10)
-  const leaveStatus =
-    period.startDate <= todayISO && period.endDate >= todayISO
-      ? 'ongoing'
-      : period.startDate > todayISO
-        ? 'upcoming'
-        : 'past'
+  const leaveStatus = leaveTemporalStatus(period.startDate, period.endDate)
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">

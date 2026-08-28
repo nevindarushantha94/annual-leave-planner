@@ -4,6 +4,11 @@ import { fromISODate, isWithinWindow, toISODate } from '../lib/dateWindow'
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MAX_LANES = 3
 
+function monthStartOf(isoDate) {
+  const d = fromISODate(isoDate)
+  return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
 function buildMonthWeeks(year, month) {
   const firstOfMonth = new Date(year, month, 1)
   const startOffset = (firstOfMonth.getDay() + 6) % 7 // Monday-first grid
@@ -48,10 +53,13 @@ export function CalendarView({
   onSelectPeriod,
   onApplyLeave,
   hideApplyButton = false,
+  focusDate = null,
 }) {
   const today = useMemo(() => new Date(), [])
-  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
-  const [selectedDate, setSelectedDate] = useState(null)
+  const [cursor, setCursor] = useState(() =>
+    focusDate ? monthStartOf(focusDate) : new Date(today.getFullYear(), today.getMonth(), 1)
+  )
+  const [selectedDate, setSelectedDate] = useState(() => focusDate ?? null)
 
   const weeks = useMemo(() => buildMonthWeeks(cursor.getFullYear(), cursor.getMonth()), [cursor])
   const gridStartISO = toISODate(weeks[0][0])

@@ -137,19 +137,120 @@ export async function applyLeave({ employeeId, periodNumber, startDate, endDate 
   return { ok: false, error: classifyLeaveError(error) }
 }
 
+// ============================================================================
+// EDIT / CANCEL — EMPLOYEE'S OWN LEAVE
+// ============================================================================
+// Uses the existing UPDATE/DELETE RLS policies directly (verified via live
+// database inspection: both are already scoped to
+// `employee_id in (select id from employees where auth_user_id = auth.uid())`,
+// the same pattern as the existing INSERT policy). No new database object is
+// needed for this path — the frontend just asks, and the database enforces
+// ownership exactly as it already does for Add Leave. The existing
+// BEFORE UPDATE trigger (leave_periods_before_write) still runs on every
+// edit, so Phase 2B validation is never bypassed.
+// ============================================================================
+
+export async function updateLeave({ id, startDate, endDate }) {
+  const { data, error } = await supabase
+    .from('leave_periods')
+    .update({ start_date: startDate, end_date: endDate })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (!error) return { ok: true, data }
+  return { ok: false, error: classifyLeaveError(error) }
+}
+
+export async function deleteLeave(id) {
+  const { error } = await supabase.from('leave_periods').delete().eq('id', id)
+  if (!error) return { ok: true }
+  return { ok: false, error: classifyLeaveError(error) }
+}
+
+// ============================================================================
+// MANAGEMENT (ADMIN/HOD) — ANOTHER EMPLOYEE'S LEAVE
+// ============================================================================
+// The existing UPDATE/DELETE/INSERT RLS policies are intentionally scoped to
+// "your own leave only" — they correctly refuse these calls for another
+// employee's row. Management actions instead go through narrow
+// SECURITY DEFINER functions (see phase2g_leave_lifecycle.sql) that verify
+// the caller's role server-side from `employees.role` via auth.uid() — never
+// from client-supplied role/employee_id — before performing the real
+// INSERT/UPDATE/DELETE. Those functions run a genuine SQL statement against
+// leave_periods, so the existing trigger still fires and Phase 2B validation
+// still applies exactly as it does for a normal employee write.
+//
+// NOTE: these three RPCs only exist in the database once
+// phase2g_leave_lifecycle.sql has been run in the Supabase SQL Editor. Until
+// then, calls here will fail with a "function does not exist" error, which
+// is surfaced through the normal error path below rather than silently
+// pretending to succeed.
+// ============================================================================
+
+export async function manageAddLeaveForEmployee({ employeeId, startDate, endDate }) {
+  const { data, error } = await supabase.rpc('management_add_leave_period', {
+    p_employee_id: employeeId,
+    p_start_date: startDate,
+    p_end_date: endDate,
+  })
+  if (!error) return { ok: true, data }
+  return { ok: false, error: classifyLeaveError(error) }
+}
+
+export async function manageUpdateLeave({ id, startDate, endDate }) {
+  const { data, error } = await supabase.rpc('management_update_leave_period', {
+    p_leave_id: id,
+    p_start_date: startDate,
+    p_end_date: endDate,
+  })
+  if (!error) return { ok: true, data }
+  return { ok: false, error: classifyLeaveError(error) }
+}
+
+export async function manageDeleteLeave(id) {
+  const { error } = await supabase.rpc('management_delete_leave_period', { p_leave_id: id })
+  if (!error) return { ok: true }
+  return { ok: false, error: classifyLeaveError(error) }
+}
+
 function classifyLeaveError(error) {
   const message = error.message || 'The leave request could not be submitted.'
 
-  // Session isn't authorized to write for this employee — either the claim
-  // hasn't happened yet, or (rare) this employee's link changed since. Not
-  // an expected steady-state error anymore now that claiming exists, but
-  // still handled cleanly rather than showing a raw Postgres message.
+  // Session isn't authorized to write for this employee/record — either the
+  // claim hasn't happened yet, this employee's link changed, or (for
+  // management RPCs) the caller's role isn't ADMIN/HOD.
   if (error.code === '42501') {
+    const isManagementAuth = /ADMIN or HOD/i.test(message)
     return {
-      kind: 'not_linked',
-      title: 'Session not authorized for this employee',
-      message:
-        'Your session isn\'t currently linked to this employee. Please use "Change Employee" and select your name again.',
+      kind: isManagementAuth ? 'not_authorized' : 'not_linked',
+      title: isManagementAuth ? 'Not authorized' : 'Session not authorized for this employee',
+      message: isManagementAuth
+        ? 'You are not authorized to modify this leave.'
+        : 'Your session isn\'t currently linked to this employee. Please use "Change Employee" and select your name again.',
+      conflicts: [],
+      raw: message,
+    }
+  }
+
+  // Target row no longer exists (already edited/removed elsewhere) —
+  // management RPCs raise this explicitly.
+  if (error.code === 'P0002') {
+    return {
+      kind: 'not_found',
+      title: 'Leave period not found',
+      message: 'This leave period no longer exists. It may have already been changed or removed.',
+      conflicts: [],
+      raw: message,
+    }
+  }
+
+  // Management RPC not installed yet (phase2g migration not run).
+  if (error.code === '42883' || /function .* does not exist/i.test(message)) {
+    return {
+      kind: 'not_available',
+      title: 'This action isn\'t available yet',
+      message: 'This action requires a database update that hasn\'t been applied yet. Please contact the administrator.',
       conflicts: [],
       raw: message,
     }

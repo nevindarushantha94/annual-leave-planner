@@ -50,3 +50,12 @@ export function dayCount(startISO, endISO) {
   const end = fromISODate(endISO)
   return Math.round((end - start) / 86400000) + 1
 }
+
+// Shared, read-only "temporal" status for a leave period. This is NOT a
+// database status/cancellation field — the schema has none — it is purely
+// derived from today's date vs. the period's dates, for display/filtering.
+export function leaveTemporalStatus(startISO, endISO, todayISO = toISODate(new Date())) {
+  if (startISO <= todayISO && endISO >= todayISO) return 'ongoing'
+  if (startISO > todayISO) return 'upcoming'
+  return 'past'
+}

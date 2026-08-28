@@ -1,9 +1,18 @@
 import { useMemo, useState } from 'react'
 import { CurrentEmployeeProvider, useCurrentEmployee } from './context/CurrentEmployeeContext'
 import { useLeavePeriods } from './hooks/useLeavePeriods'
+import {
+  applyLeave,
+  deleteLeave,
+  manageAddLeaveForEmployee,
+  manageDeleteLeave,
+  manageUpdateLeave,
+  updateLeave,
+} from './lib/leaveApi'
 import { CalendarView } from './components/CalendarView'
 import { MyLeave } from './components/MyLeave'
 import { LeaveDrawer } from './components/LeaveDrawer'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { LeaveDetailsPanel } from './components/LeaveDetailsPanel'
 import { EmployeeSelectionScreen } from './components/EmployeeSelectionScreen'
 import { SeatingFloorChart } from './components/SeatingFloorChart'
@@ -11,12 +20,15 @@ import { ManagementView } from './components/ManagementView'
 import { PreviewModeBanner } from './components/PreviewModeBanner'
 import { CalendarSkeleton } from './components/Skeletons'
 import { ContextBadges } from './components/Badges'
+import { formatLong } from './lib/dateWindow'
 
 const SEAT_GROUPS = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9']
 
 // UI-only visibility. The database's `employees.role` column (ADMIN / HOD /
 // EMPLOYEE) is the single source of truth here — nothing in this file ever
-// checks a name or an id to decide what's shown.
+// checks a name or an id to decide what's shown, and every mutation below
+// still goes through the database's own RLS / SECURITY DEFINER authorization
+// — this is never trusted as the actual security boundary.
 const MANAGEMENT_ROLES = new Set(['ADMIN', 'HOD'])
 
 function Shell() {
@@ -27,9 +39,23 @@ function Shell() {
   const [tab, setTab] = useState('calendar') // 'calendar' | 'seating' | 'myLeave' | 'management'
   const [scope, setScope] = useState('all') // 'all' | 'mine' | 'team'
   const [seatGroup, setSeatGroup] = useState('ALL')
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedPeriod, setSelectedPeriod] = useState(null)
   const [highlightedEmployeeId, setHighlightedEmployeeId] = useState(null)
+
+  // --- Leave lifecycle drawer state -----------------------------------
+  // One drawer instance serves three flows: an employee applying for their
+  // own leave, an employee (or ADMIN/HOD) editing an existing leave period,
+  // and ADMIN/HOD adding leave on behalf of another employee. Which
+  // authorized API function gets called is decided here, never inside the
+  // drawer itself.
+  const [applyOpen, setApplyOpen] = useState(false)
+  const [editingPeriod, setEditingPeriod] = useState(null)
+  const [manageAddTarget, setManageAddTarget] = useState(null)
+
+  // --- Delete confirmation state ---------------------------------------
+  const [confirmDeletePeriod, setConfirmDeletePeriod] = useState(null)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
 
   const canManage = MANAGEMENT_ROLES.has(currentEmployee?.role)
 
@@ -59,6 +85,77 @@ function Shell() {
     if (!selectedPeriod) return null
     return employees.find((e) => e.id === selectedPeriod.employeeId)?.role ?? null
   }, [selectedPeriod, employees])
+
+  // --- Resolve which flow the drawer is currently serving ---------------
+  const drawerOpen = applyOpen || !!editingPeriod || !!manageAddTarget
+
+  function closeDrawer() {
+    setApplyOpen(false)
+    setEditingPeriod(null)
+    setManageAddTarget(null)
+  }
+
+  let drawerMode = 'add'
+  let drawerEmployee = currentEmployee
+  let drawerExistingPeriods = myExistingPeriods
+  let drawerOnSubmit = ({ startDate, endDate, periodNumber }) =>
+    applyLeave({ employeeId: currentEmployee?.id, periodNumber, startDate, endDate })
+
+  if (editingPeriod) {
+    drawerMode = 'edit'
+    const isOwn = editingPeriod.employeeId === currentEmployee?.id
+    drawerEmployee = isOwn
+      ? currentEmployee
+      : (employees.find((e) => e.id === editingPeriod.employeeId) ?? null)
+    drawerExistingPeriods = periods.filter((p) => p.employeeId === editingPeriod.employeeId)
+    drawerOnSubmit = ({ startDate, endDate }) =>
+      isOwn
+        ? updateLeave({ id: editingPeriod.id, startDate, endDate })
+        : manageUpdateLeave({ id: editingPeriod.id, startDate, endDate })
+  } else if (manageAddTarget) {
+    drawerMode = 'add'
+    drawerEmployee = manageAddTarget
+    drawerExistingPeriods = periods.filter((p) => p.employeeId === manageAddTarget.id)
+    drawerOnSubmit = ({ startDate, endDate }) =>
+      manageAddLeaveForEmployee({ employeeId: manageAddTarget.id, startDate, endDate })
+  }
+
+  function openApplyDrawer() {
+    setApplyOpen(true)
+  }
+
+  function openEditDrawer(period) {
+    setEditingPeriod(period)
+  }
+
+  function openManageAddDrawer(targetEmployee) {
+    setManageAddTarget(targetEmployee)
+  }
+
+  function requestDelete(period) {
+    setDeleteError(null)
+    setConfirmDeletePeriod(period)
+  }
+
+  async function confirmDelete() {
+    if (!confirmDeletePeriod) return
+    setDeleteSubmitting(true)
+    setDeleteError(null)
+
+    const isOwn = confirmDeletePeriod.employeeId === currentEmployee?.id
+    const result = isOwn
+      ? await deleteLeave(confirmDeletePeriod.id)
+      : await manageDeleteLeave(confirmDeletePeriod.id)
+
+    setDeleteSubmitting(false)
+
+    if (result.ok) {
+      setConfirmDeletePeriod(null)
+      refresh()
+    } else {
+      setDeleteError(result.error?.message ?? 'Unable to delete this leave. Please try again.')
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-bg">
@@ -144,7 +241,7 @@ function Shell() {
                   activeEmployeeId={currentEmployee?.id}
                   highlightedEmployeeId={highlightedEmployeeId}
                   onSelectPeriod={setSelectedPeriod}
-                  onApplyLeave={() => setDrawerOpen(true)}
+                  onApplyLeave={openApplyDrawer}
                 />
               )}
             </>
@@ -155,7 +252,9 @@ function Shell() {
               employee={currentEmployee}
               periods={periods}
               onSelectPeriod={setSelectedPeriod}
-              onApplyLeave={() => setDrawerOpen(true)}
+              onApplyLeave={openApplyDrawer}
+              onEditPeriod={openEditDrawer}
+              onDeletePeriod={requestDelete}
             />
           )}
 
@@ -178,6 +277,9 @@ function Shell() {
               highlightedEmployeeId={highlightedEmployeeId}
               onHighlightEmployee={setHighlightedEmployeeId}
               onSelectPeriod={setSelectedPeriod}
+              onEditPeriod={openEditDrawer}
+              onDeletePeriod={requestDelete}
+              onAddForEmployee={openManageAddDrawer}
             />
           )}
         </div>
@@ -185,10 +287,28 @@ function Shell() {
 
       <LeaveDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        employee={currentEmployee}
-        existingPeriods={myExistingPeriods}
+        onClose={closeDrawer}
+        employee={drawerEmployee}
+        existingPeriods={drawerExistingPeriods}
+        mode={drawerMode}
+        editingPeriod={editingPeriod}
+        onSubmit={drawerOnSubmit}
         onApplied={refresh}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeletePeriod}
+        title="Delete this leave period?"
+        message={
+          confirmDeletePeriod
+            ? `${confirmDeletePeriod.employeeName} — ${formatLong(confirmDeletePeriod.startDate)} → ${formatLong(confirmDeletePeriod.endDate)}. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        submitting={deleteSubmitting}
+        error={deleteError}
+        onCancel={() => setConfirmDeletePeriod(null)}
+        onConfirm={confirmDelete}
       />
 
       <LeaveDetailsPanel
